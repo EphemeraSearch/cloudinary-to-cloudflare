@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from IPython import embed
 import click
 import cloudinary
 import cloudinary.uploader
@@ -8,6 +7,9 @@ import json
 import os
 import requests
 import sys
+import tabulate
+from IPython import embed
+from collections import OrderedDict
 
 cf_account_id = os.environ["CLOUDFLARE_IMAGES_ACCOUNT_ID"]
 cf_token = os.environ["CLOUDFLARE_IMAGES_API_TOKEN"]
@@ -22,14 +24,32 @@ def cf_headers():
     }
 
 
-def cf_request(path):
-    resp = json.loads(requests.get(path, headers=cf_headers()).content.decode())
-    click.secho(resp, fg="blue")
-    return resp
+def cloudflare_get(path):
+    resp = requests.get(path, headers=cf_headers())
+    ret = None
+    try:
+        ret = resp.json()
+    except:
+        ret = resp.content.decode()
+        click.secho(ret, fg="yellow")
+    return ret
 
 
-def cf_list():
-    return cf_request(cf_url)
+def cloudflare_delete_by_id(image_id):
+    path = f"{cf_url}/{image_id}"
+    click.secho(f"Calling DELETE: {path}", fg='yellow')
+    resp = requests.delete(path, headers=cf_headers())
+    ret = None
+    try:
+        ret = resp.json()
+    except:
+        ret = resp.content.decode()
+        click.secho(ret, fg="yellow")
+    return ret
+
+def cf_list(per_page=2, page=2):
+    url = f"{cf_url}?per_page={per_page}&page={page}"
+    return cloudflare_get(url)
 
 
 def cf_post(resource, i, replace=False):
@@ -80,8 +100,6 @@ def cf_post(resource, i, replace=False):
         "id": image_id,
     }
     headers = cf_headers()
-    #  del headers['Content-Type']
-    #  headers['Content-Type'] = "multipart/form-data"
     resp = requests.post(cf_url, headers=headers, files=data)
     status = resp.status_code
 
@@ -190,6 +208,73 @@ def import_images(next_cursor, limit):
         click.secho(f"Starting after next cursor: {next_cursor}", fg="red")
     cl_import(next_cursor=next_cursor, max_results=limit)
 
+
+@cli.command(name="delete")
+@click.argument("cloudflare-id")
+def delete_from_cloudflare(cloudflare_id):
+    """Delete Cloudflare image."""
+    if not click.confirm(f"Sure to delete image {cloudflare_id}?", default=True):
+        print("Aborting.")
+        sys.exit()
+
+    result = cloudflare_delete_by_id(cloudflare_id)
+    print(result)
+
+
+@cli.command()
+@click.option("-pp", "--per-page", default=10)  # Must be <= 10
+@click.option("-p", "--page", default=1)
+def list_cloudflare_images(per_page, page):
+    """List images Cloudflare."""
+    click.secho(f"Starting at page {page} with {per_page} results per page.", fg="cyan")
+    while True:
+        click.secho(f"Page: {page}")
+        result = cf_list(per_page=per_page, page=page)
+        if 'result' not in result:
+            click.secho("Something went wrong", fg='red')
+            print(result)
+            sys.exit()
+
+        images = result['result']['images']
+        items = []
+        for image in images:
+            meta = image['meta']
+            cloudinary = image.get('meta', {}).get('cloudinary', {})
+            etag = cloudinary.get('etag') or meta.get("etag")
+            if cloudinary.get("etag"):
+                etag = click.style(etag, fg='green')
+            else:
+                etag = click.style(etag, fg='magenta')
+            if cloudinary.get("etag") and meta.get("etag"):
+                etag = click.style(etag, fg='red')
+
+            _id = image.get('id')
+            env = meta.get('env', 'WAT')
+            if env == "WAT":
+                click.secho(f"'env' key missing from meta: {meta}", fg='yellow')
+            if not _id.startswith(env):
+                _id = click.style(_id, fg='red')
+
+            items.append(OrderedDict({
+                "id": _id,
+                "uploaded": image.get('uploaded'),
+                "source": image.get('source'),
+                "etag": etag,
+                "user": meta.get('user'),
+                "source": meta.get('source'),
+                "eph": meta.get('ephemeron'),
+                "cloudinary_asset_id": cloudinary.get('asset_id'),
+                "width": cloudinary.get('width'),
+                "height": cloudinary.get('height'),
+            }))
+        print(tabulate.tabulate(items, headers='keys'))
+        if not click.confirm("Do you want more?", default=True):
+            embed()
+            break
+        if len(images) < per_page:
+            click.secho("That's all, we think.")
+            break
+        page += 1
 
 if __name__ == "__main__":
     cli(obj={})
