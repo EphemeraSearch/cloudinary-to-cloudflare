@@ -98,7 +98,7 @@ def cf_post(resource, i, replace=False):
         (
             f"POSTING: ({i}) {_public_id} = {resource['public_id']} "
             f"{_asset_id} = {resource['asset_id']} "
-            f"{_etag} = {resource['etag']} -> {_image_id}  {_ephemeron}={ephemeron}"
+            f"{_etag} = {resource['etag']} -> {_image_id}  {_ephemeron}={ephemeron} "
         ),
         fg="magenta",
         nl=False,
@@ -133,7 +133,7 @@ def cf_post(resource, i, replace=False):
         else:
             msg = f"failed to update, got {patch_status} response"
             click.secho(msg, fg="red")
-            os.system('notify-send "you are being prompted"')
+            notify()
             embed(header=msg)
         #  print(updated.content.decode())
         # requests.delete(update_url, headers=headers)
@@ -147,7 +147,7 @@ def cf_post(resource, i, replace=False):
             f"Something unexpected went wrong: {resource['asset_id']}", fg="red"
         )
         click.secho(resp.content.decode())
-        os.system('notify-send "you are being prompted"')
+        notify()
         embed()
         raise RuntimeError("Something unexpected went wrong")
 
@@ -203,7 +203,7 @@ def cl_import(next_cursor=None, max_results=5, replace=False):
                 # won't have the cloudflare=true tag.
                 continue
             else:
-                os.system('notify-send "you are being prompted"')
+                notify()
                 embed(header=f"bad status code={resp.status_code}")
             i += 1
         if not next_cursor:
@@ -248,7 +248,7 @@ def import_images(next_cursor, limit, replace):
 @click.argument("cloudflare-id")
 def delete_from_cloudflare(cloudflare_id):
     """Delete Cloudflare image."""
-    os.system('notify-send "you are being prompted"')
+    notify()
     if not click.confirm(f"Sure to delete image {cloudflare_id}?", default=True):
         print("Aborting.")
         sys.exit()
@@ -324,6 +324,11 @@ def list_cloudflare_images(per_page, page):
             break
         page += 1
 
+
+def notify(msg="You are being prompted", seconds=20):
+    tmpl = f"<span color=\'#57dafd\' font=\'46px\'><i><b>{msg}</b></i></span>"
+    title = "Hey Now"
+    os.system(f'notify-send --expire-time {seconds * 1000} "{title}" "{tmpl}"')
 
 if __name__ == "__main__":
     cli(obj={})
